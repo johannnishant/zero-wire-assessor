@@ -26,6 +26,8 @@ The Workflow snapshots visible zones, managed WAF entry points and Worker names,
 
 2. Protect the **entire dashboard hostname**, including all paths, with a [self-hosted Access application](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/). For a `workers.dev` deployment you can enable Access under the Worker's Domains & Routes. Allow only the intended readers via your identity provider. Do not add a Bypass policy. The Worker also verifies the JWT signature, expiry, issuer and application audience before serving any route or static asset. Until configured it responds `401`.
 
+   If the deploy form requires values before you have an Access application, use `setup-pending` in the required fields, then replace them in step 3 before the first sync. If the Git integration reports expired authorization, use the Wrangler install above to deploy without changing an existing GitHub App installation.
+
 3. Set the following Worker secrets via the deployment form, dashboard or `npx wrangler secret put NAME`:
 
    | Name | Value |
