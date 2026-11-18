@@ -1,0 +1,22 @@
+{
+  "name": "zero-wire-assessor",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test",
+    "check": "wrangler deploy --dry-run --outdir dist",
+    "test:runtime": "npm run check && node scripts/runtime.mjs"
+  },
+  "dependencies": {
+    "agents": "0.33.0",
+    "jose": "6.2.17"
+  },
+  "devDependencies": {
+    "miniflare": "5.20261117.0-beta",
+    "wrangler": "4.164.0"
+  }
+}
