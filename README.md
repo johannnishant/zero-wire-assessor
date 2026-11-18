@@ -3,7 +3,7 @@
 A self-hosted Cloudflare Worker that turns [Radar Zero Wire](https://radar.cloudflare.com/zero-wire) briefings into read-only assessments of one Cloudflare account. Licensed under MIT. Independent project.
 
 <!-- badge -->
-**Deploy button:** pending the public repository URL. To install from a local checkout, use the instructions below.
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/johannnishant/zero-wire-assessor)
 <!-- end badge -->
 
 ### How it works
