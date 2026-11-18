@@ -7,6 +7,7 @@ import {generateKeyPair,exportJWK,SignJWT} from "jose";
 
 const id="a".repeat(32);
 let entries=["baseline"];
+let prompt="";
 const {publicKey,privateKey}=await generateKeyPair("RS256");
 const jwk={...await exportJWK(publicKey),kid:"fixture",alg:"RS256"};
 async function login(email){return new SignJWT({email}).setProtectedHeader({alg:"RS256",kid:"fixture"}).setIssuer("https://example.cloudflareaccess.com").setAudience("fixture").setSubject(email).setExpirationTime("10m").sign(privateKey);}
@@ -22,17 +23,20 @@ const rig=new Miniflare(convertV4MiniflareOptions({workers:[{
   durableObjects:{LEDGER:{className:"Ledger",useSQLite:true},AssessmentAgent:{className:"AssessmentAgent",useSQLite:true}},
   workflows:{RUNS:{name:"assessments",className:"AssessmentWorkflow"}},
    bindings:{ACCESS_TEAM:"example",ACCESS_AUD:"fixture",ADMIN_EMAILS:"admin@example.org",INVENTORY_ACCOUNT_ID:id,INVENTORY_TOKEN:"fixture"},
-  serviceBindings:{AI:"model"},
+  serviceBindings:{AI:"model",ASSETS:"assets"},
   outboundService:req=>{
      const u=new URL(req.url);
      if(u.href==="https://example.cloudflareaccess.com/cdn-cgi/access/certs")return Response.json({keys:[jwk]});
-    if(u.origin==="https://radar.cloudflare.com")return Response.json({items:entries.map(slug=>({title:slug,_zero_wire:{slug}}))});
+    if(u.origin==="https://radar.cloudflare.com")return Response.json({items:entries.map(slug=>({title:slug,_zero_wire:{slug,assessment_prompt:slug==="new"?prompt:""}}))});
     if(u.origin==="https://api.cloudflare.com")return Response.json({success:true,result:[]});
     throw Error("Unexpected outbound request");
   }
 },{
   name:"model",compatibilityDate:"2026-11-18",modules:true,
    script:`import {WorkerEntrypoint} from "cloudflare:workers";export default class extends WorkerEntrypoint{async run(){await new Promise(r=>setTimeout(r,500));return {response:"Inspect origin inventory."}}}`
+},{
+   name:"assets",compatibilityDate:"2026-11-18",modules:true,
+   script:`export default {fetch(){return new Response("fixture asset",{headers:{"content-type":"text/html"}})}}`
 }]}));
 try{
   const call=path=>rig.dispatchFetch(`https://example.org${path}`);
@@ -50,6 +54,8 @@ try{
   assert.equal(detail.state,"complete",JSON.stringify(detail.logs));
   assert.equal(detail.report.note,"Inspect origin inventory.");
   const admin=await login("admin@example.org"),reader=await login("reader@example.org");
+  const home=await rig.dispatchFetch("https://example.org/",{headers:{"cf-access-jwt-assertion":admin}});
+  assert.equal(home.status,200);assert.equal(home.headers.get("cache-control"),"private, no-store");assert.equal(await home.text(),"fixture asset");
   const api=(path,token,method="GET",origin="https://example.org")=>rig.dispatchFetch(`https://example.org/api/${path}`,{method,headers:{"cf-access-jwt-assertion":token,origin,"x-console-action":"1"}});
   const overview=await api("overview",reader);assert.equal(overview.status,200);assert.equal((await overview.json()).admin,false);
   assert.equal((await api("sync",reader,"POST")).status,403);
@@ -64,6 +70,9 @@ try{
   assert.equal((await api(`stop/${manual}`,admin,"POST")).status,409);
   assert.equal((await api(`stop/${run}`,admin,"POST")).status,409);
   const rerun=await api("assess/baseline",admin,"POST");assert.equal(rerun.status,202);assert.notEqual((await rerun.json()).id,manual);
+  prompt="Updated owner checklist";
+  assert.equal((await api("sync",admin,"POST")).status,200);
+  const updated=await (await api("overview",admin)).json();assert.equal(updated.runs.filter(r=>r.title==="new").length,2);
   console.log("Signed admin/reader API, origin protection, manual sync, archival assessment, cancellation, event log and re-run passed.");
   console.log("Access gate, baseline, deduplication, Workflow → Agent → model binding and saved report passed.");
 }finally{await rig.dispose();}
