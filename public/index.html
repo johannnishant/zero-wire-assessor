@@ -1,9 +1,46 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Zero Wire · Assessment desk</title><link rel="stylesheet" href="/style.css"><script src="/app.js" type="module"></script></head>
-<body><header><div><b class="sig">ZW</b> &nbsp; Zero Wire <span>/ Assessment desk</span></div><small id="role">Connecting…</small></header><main>
-<p class="kicker">SECURITY OPERATIONS &nbsp; / &nbsp; TRIAGE</p><h1>Assessment desk</h1>
-<p class="lede">From public briefings to evidence in your Cloudflare account.</p>
-<aside id="notice" role="status"></aside>
-<div class="grid"><section><div class="heading"><h2>Briefing library</h2><button id="sync" hidden>Sync feed</button></div><p id="stamp">Waiting for feed status…</p><div id="briefings"></div></section>
-<section><div class="heading"><h2>Assessment runs</h2><button id="refresh">Refresh</button></div><p>Open a run for evidence, guidance and its event log.</p><div id="runs"></div><nav><button id="prev">Newer</button> <button id="next">Older</button></nav></section></div>
-<section id="detail" hidden><p class="kicker">RUN INSPECTOR</p><div id="report"></div></section>
-<footer>Source: <a href="https://radar.cloudflare.com/zero-wire">Cloudflare Radar Zero Wire</a> · All timestamps UTC</footer></main></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Zero Wire Assessment Desk</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" type="module"></script>
+</head>
+<body>
+  <div class="masthead">
+    <header class="shell">
+      <a class="brand" href="/"><span class="mark" aria-hidden="true">ZW</span> Zero Wire</a>
+      <span class="role" id="role">Connecting…</span>
+    </header>
+    <div class="hero shell">
+      <p class="kicker">Private workspace</p>
+      <h1>Assessment desk</h1>
+      <p>Compare Radar advisories with your Cloudflare inventory. Findings are read-only; origin exposure may still need verification.</p>
+    </div>
+  </div>
+  <main class="shell">
+    <p id="notice" role="status"></p>
+    <div class="grid">
+      <section class="panel" aria-labelledby="briefings-title">
+        <div class="heading"><h2 id="briefings-title">Briefing library</h2><button id="sync" hidden>Sync feed</button></div>
+        <p class="muted note" id="stamp">Loading the briefing library…</p>
+        <div id="briefings"></div>
+      </section>
+      <div class="run-side">
+        <section class="panel" aria-labelledby="runs-title">
+          <div class="heading"><h2 id="runs-title">Assessment runs</h2><button id="refresh">Refresh</button></div>
+          <p class="muted note">Inspect a run to see evidence and its event log.</p>
+          <div id="runs"></div>
+          <nav aria-label="Run history"><button id="prev" hidden>Newer</button><button id="next" hidden>Older</button></nav>
+        </section>
+        <section class="panel inspector" id="detail" aria-label="Run inspector" hidden>
+          <p class="kicker">Run inspector</p>
+          <div id="report"></div>
+        </section>
+      </div>
+    </div>
+    <footer><span>All timestamps UTC</span><a href="https://radar.cloudflare.com/zero-wire">Source: Cloudflare Radar ↗</a></footer>
+  </main>
+</body>
+</html>
