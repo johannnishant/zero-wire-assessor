@@ -19,3 +19,23 @@ button{cursor:pointer;font-size:.83rem;font-weight:680}button:hover{background:#
 footer{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-top:18px;color:var(--muted);font-size:.8rem}.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
 @media(max-width:820px){.workspace-grid{grid-template-columns:1fr}.inbox #advisories{max-height:245px;overflow:auto}.frame{width:calc(100% - 30px)}}
 @media(max-width:470px){.brand small{display:none}.metric{padding:6px 8px}.metric small{display:none}.metric strong{font-size:.93rem}.stages{grid-template-columns:repeat(2,1fr)}.handoff-row{grid-template-columns:1fr;gap:2px}.topbar{padding-inline:15px}}
+.intro{align-items:center}.intro h1{margin:0}
+.briefing-head h2{flex:1 1 260px;min-width:0}
+.disclosure{background:#fff;border:1px solid var(--line);border-radius:7px;min-width:0}
+.disclosure>summary{display:flex;align-items:center;gap:8px;padding:8px 12px;min-height:40px;cursor:pointer;font-size:.86rem;font-weight:700;list-style:none}
+.disclosure>summary::-webkit-details-marker{display:none}
+.disclosure>summary::after{content:"";width:6px;height:6px;border-right:2px solid #526173;border-bottom:2px solid #526173;transform:rotate(-45deg);flex:none;margin-inline-start:auto}
+.disclosure[open]>summary::after{transform:rotate(45deg)}
+.disclosure>summary:hover{background:#f6f7f9;border-radius:7px}
+.disclosure>summary small{margin-left:auto;color:var(--muted);font-weight:500;font-size:.74rem;text-align:right}
+.disclosure>summary:has(small)::after{margin-inline-start:4px}
+.detail-body{border-top:1px solid var(--line);padding:7px 12px 11px;font-size:.88rem}
+.detail-body p+p{margin-top:6px}.detail-body p+a,.detail-body ol+a{display:inline-block;margin-top:7px}
+.detail-body li{margin-block:4px}.detail-body ul,.detail-body ol{margin-block:2px 4px}.detail-body .handoff-row:first-child{border-top:0;margin-top:0}
+.panel>.disclosure{margin-top:8px}
+.metric .disclosure{border:0;background:transparent}
+.metric .disclosure>summary{padding:0;min-height:24px;font-size:1rem}.metric .disclosure>summary span{font-size:inherit;color:var(--ink)}
+.metric .detail-body{padding:4px 0 0;font-size:.75rem;color:var(--muted)}
+.decision-card h3{color:var(--muted);font-size:.82rem}
+.decision-card h3+strong{margin-top:4px}
+.panel>.heading+p{margin-top:5px}

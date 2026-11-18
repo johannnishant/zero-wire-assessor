@@ -4,6 +4,12 @@ const link=(text,url)=>Object.assign(node("a",text),{href:url});
 const wrap=(cls,...children)=>{const el=node("div","",cls);el.append(...children);return el;};
 const list=(tag,items)=>{const el=node(tag);el.append(...items.map(x=>node("li",x)));return el;};
 const section=(title,...contents)=>{const el=node("section","","panel");el.append(node("h3",title),...contents);return el;};
+function disclosure(key,title,meta,...contents){
+  const row=node("details","","disclosure");row.dataset.detail=key;
+  const label=node("summary");label.dataset.deskFocus=`detail-${key}`;
+  label.append(node("span",title),...(meta?[node("small",meta)]:[]));
+  row.append(label,wrap("detail-body",...contents));return row;
+}
 const terminal=new Set(["complete","failed","stopped"]);
 const active=s=>Boolean(s && !terminal.has(s));
 const stateLabels={pending:"Waiting to queue",queued:"Queued",collecting:"Reading inventory",assessing:"Drafting guidance",complete:"Report ready",failed:"Failed",stopped:"Stopped"};
@@ -13,12 +19,7 @@ const utc=t=>t ? `${t.replace("T"," ").replace(/\.\d+Z$|Z$/,"").slice(0,19)} UTC
 const started=id=>id?.startsWith("auto-")?"Scheduled":"Manual";
 const parseUtc=s=>Date.parse(s.includes("T")?s:s.replace(" ","T")+"Z");
 const elapsed=(a,b)=>Math.max(0,Math.round((parseUtc(b)-parseUtc(a))/1000));
-const stageNames=[
-  ["Queued","Wait for a workflow slot."],
-  ["Inventory","Read visible zones, managed WAF entries and Worker names."],
-  ["Guidance","Draft a handoff from the inventory snapshot."],
-  ["Report","Save the findings and event log."]
-];
+const stageNames=["Queue","Inventory","Guidance","Report"];
 const stateStage={pending:0,queued:0,collecting:1,assessing:2,complete:3};
 const rank={collecting:1,assessing:2,complete:3};
 
@@ -41,10 +42,10 @@ function table(headers,rows){
 function advisoryLink(d){return link("Read on Radar ↗",`https://radar.cloudflare.com/zero-wire/${encodeURIComponent(d.slug)}`);}
 function recommendations(doc,evidence){
   const result=[];
-  if(evidence?.ownerEvidence?.some(x=>x.state==="exploitable"))result.push(["Service owner","Confirm which deployments run the affected component recorded in your VEX snapshot. Prioritize the vendor fix and verify the running version after rollout."]);
-  else result.push(["Service owner",doc.cves?.length?"Identify deployments that use the affected component. Verify the running version or configuration against the vendor advisory.":"Confirm whether your organization uses the affected product or service. Validate the relevant configuration against the advisory."]);
-  if(evidence?.zones?.some(z=>z.managedExecutions!==null))result.push(["Edge security","If relying on a WAF mitigation, confirm the affected hostnames, matching scope and effective rule action. A managed ruleset entry does not establish coverage."]);
-  if(evidence && (evidence.workers===null || !evidence.zones?.length || evidence.gaps?.some(g=>/unavailable|truncated/i.test(g))))result.push(["Cloudflare administrator","Review the coverage gaps. Confirm the token scope and fill any missing inventory before closing triage."]);
+  if(evidence?.ownerEvidence?.some(x=>x.state==="exploitable"))result.push(["Service owner","Find deployments of the affected VEX component. Apply the vendor fix and verify the running version."]);
+  else result.push(["Service owner",doc.cves?.length?"Verify the deployed version or configuration against the vendor advisory.":"Confirm you use the affected product, then check its configuration against the advisory."]);
+  if(evidence?.zones?.some(z=>z.managedExecutions!==null))result.push(["Edge security","Before relying on WAF, verify hostname scope and the effective rule action."]);
+  if(evidence && (evidence.workers===null || !evidence.zones?.length || evidence.gaps?.some(g=>/unavailable|truncated/i.test(g))))result.push(["Cloudflare administrator","Check token scope and fill the inventory gaps."]);
   return result;
 }
 function reportText(doc,detail){
@@ -60,20 +61,21 @@ function reportText(doc,detail){
 
 export function mountWorkspace(transport,{demo=false}={}){
   const root=document.getElementById("workspace");
-  root.innerHTML=`<div class="intro"><div><p class="eyebrow">Vulnerability triage</p><h1>Assessment workspace</h1><p>Read the advisory. Check your inventory. Hand off what needs verification.</p></div><div class="toolbar" id="controls"></div></div>
+  root.innerHTML=`<div class="intro"><h1>Assessments</h1><div class="toolbar" id="controls"></div></div>
   <div class="metrics" id="metrics" aria-label="Workspace status"></div><div class="notice" id="notice" role="status" hidden></div>
   <div class="workspace-grid"><aside class="inbox" aria-label="Advisory inbox"><div class="inbox-head"><h2>Advisories</h2><label class="sr" for="find-advisory">Search advisories</label><input id="find-advisory" type="search" placeholder="Search title or CVE"><label class="sr" for="filter-state">Filter advisories</label><select id="filter-state"><option value="all">All statuses</option><option value="none">Not assessed</option><option value="active">In progress</option><option value="complete">Report ready</option><option value="attention">Failed or stopped</option></select></div><div id="advisories"></div></aside>
   <div id="desk" class="desk"><section class="panel"><p>Loading advisories…</p></section></div></div>
   <footer><span>Read-only checks · UTC timestamps</span><a href="https://radar.cloudflare.com/zero-wire">Cloudflare Radar ↗</a></footer>`;
   const $=id=>document.getElementById(id);
   let view, current, runId, generation=0, overviewRequest=0, timer, busy=false, lastState, lastAlert, tab="handoff", followLatest=true, renderedKey;
+  const openDetails=new Map();
   const alert=(text,tone="")=>{
     if(lastAlert===text && $("notice").dataset.tone===tone)return;
     lastAlert=text;$("notice").textContent=text;$("notice").dataset.tone=tone;$("notice").hidden=!text;
   };
   const refreshBtn=button("Refresh",()=>change(async()=>{await refresh();alert("Workspace refreshed.");}));
   const mainBtn=button(demo?"Reset demo":"Sync feed",()=>change(async()=>{
-    if(demo){await transport.reset();current=null;runId=null;lastState=null;followLatest=true;tab="handoff";await refresh();alert("Demo reset.");}
+    if(demo){await transport.reset();openDetails.clear();delete $("desk").dataset.detailScope;current=null;runId=null;lastState=null;followLatest=true;tab="handoff";await refresh();alert("Demo reset.");}
     else {const sync=await transport.sync();await refresh();alert(sync.first?`${sync.count} briefings cataloged. Choose one to assess.`:sync.queued?`${sync.queued} new or revised briefings queued.`:"Feed checked. No new revisions to assess.");}
   }));
   $("controls").append(refreshBtn,mainBtn);
@@ -91,11 +93,13 @@ export function mountWorkspace(transport,{demo=false}={}){
     const running=Object.entries(totals).filter(([s])=>active(s)).reduce((n,[,count])=>n+count,0);
     const stale=view.sync && Date.now()-parseUtc(view.sync)>35*60*1000;
     const feed=demo?"Demo snapshot":attempts?.status==="error"?(attempts.stage==="dispatch"?"Dispatch failed":"Feed check failed"):stale?"Feed is stale":view.sync?"Feed checked":"Not synced";
-    $("metrics").replaceChildren(...[
-      ["Radar feed",feed,demo?"Public advisory snapshot":view.sync?`Last successful sync: ${utc(view.sync)}`:"Run a sync to load advisories."],
-      ["In progress",String(running),"Queued, reading inventory or drafting"],
-      ["Reports ready",String(totals.complete ?? 0),"Completed runs, not a safety verdict"]
-    ].map(([label,value,sub])=>wrap("metric",node("span",label),node("strong",value),node("small",sub))));
+    const feedStatus=disclosure("feed-details",feed,"",node("p",demo?"Public Radar snapshot.":view.sync?`Last successful sync: ${utc(view.sync)}`:"Sync the feed to load advisories."),
+      ...(attempts?.status==="error"?[node("p",`Last check failed: ${utc(attempts.at)}`)]:[]));
+    const previous=$("metrics").querySelector("details");feedStatus.open=Boolean(previous?.open);
+    const feedFocused=previous?.contains(document.activeElement);
+    $("metrics").replaceChildren(wrap("metric",node("span","Radar feed"),feedStatus),
+      ...[["In progress",running],["Reports ready",totals.complete ?? 0]].map(([label,value])=>wrap("metric",node("span",label),node("strong",String(value)))));
+    if(feedFocused)feedStatus.querySelector("summary").focus({preventScroll:true});
     mainBtn.hidden=!view.admin && !demo;
   }
   function inbox(){
@@ -116,12 +120,12 @@ export function mountWorkspace(transport,{demo=false}={}){
   function timeline(detail){
     const stages=node("ol","","stages");
     const currentStage=stateStage[detail.state]??Math.max(0,...detail.logs.map(e=>rank[e.note]??0));
-    for(const [i,[name,description]] of stageNames.entries()){
+    for(const [i,name] of stageNames.entries()){
       const item=node("li");
       const step=detail.state==="complete"||i<currentStage?"done":i===currentStage?(terminal.has(detail.state)?"ended":"current"):"later";
       item.dataset.step=step;
       if(step==="current")item.setAttribute("aria-current","step");
-      item.append(node("span",step==="done"?"✓":String(i+1),"step-no"),wrap("",node("strong",name),node("small",description)));
+      item.append(node("span",step==="done"?"✓":String(i+1),"step-no"),node("strong",name));
       stages.append(item);
     }
     return stages;
@@ -130,38 +134,55 @@ export function mountWorkspace(transport,{demo=false}={}){
     const e=detail?.evidence ?? detail?.report?.evidence;
     const ready=detail?.report;
     const decision=ready?.exposure ?? (detail ? "Exposure not determined" : "Not assessed");
-    const status=ready?(detail.briefing.revision!==doc.revision?"This report used an older revision. Start a new assessment before relying on it.":"A completed run is not proof that an origin is safe."):
-      detail?.state==="failed"?"No report was saved. Check Activity for the failing stage.":detail?.state==="stopped"?"The run was stopped. Any inventory already captured remains available.":detail?"Follow the run stages below. The workspace updates automatically.":"Start a read-only assessment to collect account evidence.";
-    const card=section("Exposure decision",node("strong",decision,"decision"),node("p",status));
+    const status=ready?"Cloudflare inventory alone can’t establish origin exposure.":
+      detail?.state==="failed"?"See Activity for the failure.":detail?.state==="stopped"?(e?"The saved snapshot is in Evidence.":"No inventory was saved."):detail?"This run updates automatically.":"Assess to collect read-only inventory.";
+    const card=section("Exposure",node("strong",decision,"decision"),node("p",status));
     card.classList.add("decision-card");
-    if(!detail)return [card,section("Radar’s recommended steps",doc.actions?.length?list("ol",doc.actions):node("p","Open Radar for guidance."),advisoryLink(doc))];
-    if(!ready && !terminal.has(detail.state))return [card,...(e?[section("Evidence captured",node("p",`${e.zones.length} zones listed · ${e.workers?.length ?? "No"} Worker names available. See Evidence for details.`))]:[])];
+    const radar=source=>disclosure("radar","Radar recommendations",source.actions?.length?`${source.actions.length} steps`:"",source.actions?.length?list("ol",source.actions):node("p","See source for guidance."),advisoryLink(source));
+    if(!detail)return [card,radar(doc)];
+    if(!ready && !terminal.has(detail.state))return [card,...(e?[node("p","Inventory saved. See Evidence.","muted")]:[])];
     const source=detail.briefing;
-    const actions=section("Owner handoff",...recommendations(source,e).map(([owner,text])=>wrap("handoff-row",node("strong",owner),node("p",text))));
-    actions.append(button("Copy handoff",()=>void change(async()=>{await navigator.clipboard.writeText(reportText(source,detail));alert("Handoff copied.");}),"quiet"));
-    return [card,actions,...(ready?.note?[section("Agent guidance",node("p",demo?"Example output · No model was called.":"Workers AI draft · Verify against the evidence and vendor advisory.","muted"),node("p",ready.note,"agent-note"))]:[]),
-      section("Radar’s recommended steps",source.actions?.length?list("ol",source.actions):node("p","Open Radar for guidance."),advisoryLink(source))];
+    const [[owner,next],...other]=recommendations(source,e);
+    const copy=button("Copy handoff",()=>void change(async()=>{await navigator.clipboard.writeText(reportText(source,detail));alert("Handoff copied.");}));
+    copy.dataset.deskFocus="copy";
+    const actions=section("Next action");
+    actions.replaceChildren(wrap("heading",node("h3","Next action"),copy),node("p",`${owner}: ${next}`));
+    return [card,actions,...(other.length?[disclosure("additional","Other owner checks",`${other.length}`, ...other.map(([name,text])=>wrap("handoff-row",node("strong",name),node("p",text))))]:[]),
+      ...(ready?.note?[disclosure("agent","Agent guidance",demo?"Example":"AI draft",node("p",demo?"Example output. No model was called.":"Verify against the evidence and vendor advisory.","muted"),node("p",ready.note,"agent-note"))]:[]),radar(source)];
   }
   function evidence(detail){
     const e=detail?.evidence ?? detail?.report?.evidence;
-    if(!e)return [section("No inventory snapshot",node("p",detail?"This run has not saved inventory. Check Activity for progress.":"Start an assessment to see the inventory it actually read."))];
-    return [section("Observed configuration",node("p",`Snapshot · ${utc(e.observed)}`,"muted"),
-      e.zones?.length?table(["Zone","Managed entries","Cloudflare Managed Ruleset"],e.zones.map(z=>[z.zone,z.managedExecutions===null?"Not verified":String(z.managedExecutions),z.cloudflareManagedEntry===null?"Not verified":z.cloudflareManagedEntry?"Entry present":"No enabled entry observed"])):node("p","No zones in this snapshot."),
-      node("p","These are configuration observations, not effective rule actions or proof of patching.","muted")),
-      section("Worker inventory",node("p",e.workers===null?"Worker inventory unavailable.":`${e.workers.length} names captured. Code and dependencies were not checked.`),...(e.workers?.length?[(()=>{const d=node("details");d.append(node("summary","Show Worker names"),list("ul",e.workers));return d;})()]:[])),
-      section("Coverage gaps",e.gaps?.length?list("ul",e.gaps):node("p","No additional gaps recorded. Origin exposure is not inferred.")),
-      ...(e.ownerEvidence?.length?[section("Owner-supplied VEX",table(["CVE","Component","Version","State","As of"],e.ownerEvidence.map(r=>[r.cve,r.asset,r.version,r.state,r.asOf])))]:[])];
+    if(!e)return [section("No inventory snapshot",node("p",detail?"Check run activity.":"Start an assessment to collect inventory."))];
+    return [section("Inventory snapshot",node("p",`${e.zones.length} zones · ${e.workers===null?"Workers unavailable":`${e.workers.length} Workers`}`),
+      node("p",`Captured ${utc(e.observed)}. Origin versions and effective WAF actions were not checked.`,"muted")),
+      disclosure("gaps","Coverage gaps",String(e.gaps?.length ?? 0),e.gaps?.length?list("ul",e.gaps):node("p","No additional gaps recorded.")),
+      disclosure("zones","Zone and WAF observations",String(e.zones.length),
+        e.zones.length?table(["Zone","Managed entries","Cloudflare Managed Ruleset"],e.zones.map(z=>[z.zone,z.managedExecutions===null?"Not verified":String(z.managedExecutions),z.cloudflareManagedEntry===null?"Not verified":z.cloudflareManagedEntry?"Entry present":"No enabled entry observed"])):node("p","No zones in this snapshot.")),
+      disclosure("workers","Worker inventory",e.workers===null?"Unavailable":String(e.workers.length),node("p",e.workers===null?"See coverage gaps.":"Names only. Code and dependencies were not checked."),...(e.workers?.length?[list("ul",e.workers)]:[])),
+      ...(e.ownerEvidence?.length?[disclosure("vex","Owner-supplied VEX",String(e.ownerEvidence.length),table(["CVE","Component","Version","State","As of"],e.ownerEvidence.map(r=>[r.cve,r.asset,r.version,r.state,r.asOf])))]:[])];
   }
   function activity(detail){
     if(!detail)return [section("No run history",node("p","Choose Assess to start the first run."))];
     const log=node("ol","","event-log");
     const translations={Queued:"Run requested",queued:"Workflow queued",collecting:"Inventory read started",assessing:"Guidance draft started",complete:"Report saved",failed:"Run failed",stopped:"Run stopped"};
     for(const e of detail.logs){const item=node("li");item.append(node("time",utc(e.ts)),node("span",translations[e.note] ?? e.note));log.append(item);}
-    return [section("Event log",log),section("Run reference",node("p",`${started(runId)} run · ${runId}`,"identifier"),
-      node("p",`Advisory revision: ${detail.briefing.revision?.slice(0,12) ?? "—"}`,"muted"))];
+    const last=detail.logs.at(-1);
+    const failure=detail.state==="failed"&&detail.logs.findLast(e=>e.note.startsWith("Failed during"));
+    return [section("Latest activity",node("p",failure?.note??translations[last?.note]??last?.note??stateLabel(detail.state)),...(last?[node("p",utc(last.ts),"muted")]:[])),
+      disclosure("events","Event log",`${detail.logs.length} events`,log),
+      disclosure("reference","Run reference",started(runId),node("p",runId,"identifier"),node("p",`Advisory revision: ${detail.briefing.revision?.slice(0,12) ?? "—"}`,"muted"))];
   }
   function render(doc,runs,detail,focus){
     const old=document.activeElement.dataset?.deskFocus;
+    const scope=`${doc.slug}/${runId??""}`;
+    const desk=$("desk");
+    const previous=openDetails.get(desk.dataset.detailScope);
+    if(previous)for(const row of desk.querySelectorAll("details[data-detail]")){
+      if(row.open)previous.add(row.dataset.detail);else previous.delete(row.dataset.detail);
+    }
+    if(!openDetails.has(scope) && openDetails.size>=80)openDetails.delete(openDetails.keys().next().value);
+    const expanded=openDetails.get(scope)??new Set();
+    openDetails.set(scope,expanded);
     const select=node("select");select.setAttribute("aria-label","Run history");select.dataset.deskFocus="run";
     select.append(new Option(runs.length?"Select a run":"No runs yet",""));
     for(const [i,r] of runs.entries())select.append(new Option(`${i===0?"Latest · ":""}${stateLabel(r.state)} · ${started(r.id)} · ${utc(r.created)}`,r.id));
@@ -175,30 +196,33 @@ export function mountWorkspace(transport,{demo=false}={}){
         assess.dataset.deskFocus="action";action.append(assess);
       }
     }
-    action.append(advisoryLink(doc));
     const h=node("h2",doc.title);h.tabIndex=-1;
-    const head=section("");head.replaceChildren(wrap("briefing-head",wrap("",node("p","Selected advisory","eyebrow"),h),action),
-      node("p",doc.summary || "Read the source on Radar for technical details.","summary"),
-      wrap("metadata",...doc.cves.map(c=>node("span",c,"cve")),node("span",doc.reviewed?`Reviewed ${doc.reviewed}`:"Review date unavailable","muted")));
+    const head=section("");head.replaceChildren(wrap("briefing-head",h,action),
+      wrap("metadata",...doc.cves.map(c=>node("span",c,"cve"))),
+      disclosure("advisory","Advisory details",doc.reviewed?`Reviewed ${doc.reviewed}`:"",node("p",doc.summary||"See Radar for details."),advisoryLink(doc)));
     const parts=[head];
     if(runs.length || detail){
-      const bar=wrap("heading",wrap("",node("p","Assessment run","eyebrow"),badge(detail?.state)),select);
+      const bar=wrap("heading",wrap("toolbar",node("h3","Run"),badge(detail?.state)));
       const panel=section("");panel.replaceChildren(bar);
       if(detail){
         const since=detail.created?` · Started ${utc(detail.created)}`:"";
         const duration=detail.created && terminal.has(detail.state) && detail.logs.length?` · ${elapsed(detail.created,detail.logs.at(-1).ts)}s elapsed`:"";
-        panel.append(node("p",`${started(runId)}${since}${duration}`,"muted"),timeline(detail));
+        if(active(detail.state))panel.append(timeline(detail));
+        panel.append(disclosure("progress","Run details",started(runId),node("p",`${started(runId)}${since}${duration}`,"muted"),...(!active(detail.state)?[timeline(detail)]:[])));
         if(detail.briefing.revision!==doc.revision)panel.append(node("p","This run used an older advisory revision.","inline-warning"));
       }
+      if(runs.length>1)panel.append(disclosure("history","Run history",String(runs.length),select));
       parts.push(panel);
     }
     const tabs=wrap("views");tabs.setAttribute("aria-label","Report views");
-    for(const [key,label] of [["handoff","Decision & handoff"],["evidence","Evidence"],["activity","Activity"]]){
+    for(const [key,label] of [["handoff","Handoff"],["evidence","Evidence"],["activity","Activity"]]){
       const b=button(label,()=>{tab=key;render(doc,runs,detail,false);},"view-button");
       b.dataset.deskFocus=key;b.setAttribute("aria-pressed",String(tab===key));tabs.append(b);
     }
     parts.push(tabs,...(tab==="evidence"?evidence(detail):tab==="activity"?activity(detail):handoff(doc,detail)));
-    $("desk").replaceChildren(...parts);
+    desk.replaceChildren(...parts);
+    desk.dataset.detailScope=scope;
+    for(const row of desk.querySelectorAll("details[data-detail]"))row.open=expanded.has(row.dataset.detail);
     if(focus){h.focus({preventScroll:true});if(matchMedia("(max-width: 820px)").matches)h.scrollIntoView({block:"start"});}
     else if(old)Array.from($("desk").querySelectorAll("[data-desk-focus]")).find(x=>x.dataset.deskFocus===old)?.focus({preventScroll:true});
   }
