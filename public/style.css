@@ -39,3 +39,10 @@ footer{display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px;margin
 .decision-card h3{color:var(--muted);font-size:.82rem}
 .decision-card h3+strong{margin-top:4px}
 .panel>.heading+p{margin-top:5px}
+.triage-actions{margin-top:8px}
+#triage-dialog{width:min(490px,calc(100% - 32px));max-height:calc(100% - 32px);padding:18px;border:1px solid var(--line);border-radius:10px;color:var(--ink)}
+#triage-dialog::backdrop{background:#171d2980}
+.triage-form{display:grid;gap:10px;font-size:.88rem}
+.triage-form label{display:grid;gap:3px;font-weight:650}
+.triage-form input,.triage-form select,.triage-form textarea{width:100%;font:inherit;font-weight:400}
+.triage-form textarea{padding:8px 10px;border:1px solid #bfc7d0;border-radius:6px;resize:vertical}

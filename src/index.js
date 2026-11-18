@@ -4,6 +4,7 @@ import {inventory} from "./inventory.js";
 import {ownerEvidence,verdict} from "./vex.js";
 import {identity} from "./auth.js";
 import {normalize,FEED,boundedJSON} from "./feed.js";
+import {readTriage} from "./triage.js";
 export {Ledger} from "./ledger.js";
 const ledger=env=>env.LEDGER.getByName("account");
 
@@ -63,6 +64,8 @@ async function sync(env,source) {
     await store.recordSync("ok",source,info);
     return info;
   }catch(err){
+    // A Radar outage must not strand runs already in the durable outbox.
+    if(!info)try{await dispatch(env);}catch{console.warn({event:"assessment_dispatch_retry_failed",source});}
     await store.recordSync("error",source,{stage:info?"dispatch":"feed"});
     throw err;
   }
@@ -76,11 +79,22 @@ async function handle(req,env) {
   if (req.method==="POST") {
     if (!user.admin || req.headers.get("origin")!==url.origin || req.headers.get("x-console-action")!=="1") return json({error:"Forbidden"},403);
     if(path==="/api/sync")return json(await sync(env,"manual"));
-    const run=path.match(/^\/api\/assess\/([a-z0-9-]+)$/);
+    const triage=path.match(/^\/api\/triage\/([a-z0-9-]{1,120})$/);
+    if(triage){
+      const {value,status}=await readTriage(req);
+      if(!value)return json({error:status===413?"Triage update is too large.":status===415?"Expected application/json.":"Invalid triage fields. Closing requires an owner and a note."},status);
+      const saved=await store.updateTriage(triage[1],value,user.email);
+      if(saved.outcome==="missing")return json({error:"Unknown briefing"},404);
+      if(saved.outcome==="conflict")return json({error:"Triage or the advisory changed. Review the latest version before saving."},409);
+      return json({version:saved.version});
+    }
+    const run=path.match(/^\/api\/assess\/([a-z0-9-]{1,120})$/);
     if(run){
-      const id=await store.manual(run[1]);
-      if(!id)return json({error:"Unknown briefing"},404);
-      await dispatch(env);return json({id},202);
+      const requested=await store.manual(run[1]);
+      if(!requested)return json({error:"Unknown briefing"},404);
+      let dispatchDelayed=false;
+      try{await dispatch(env);}catch{dispatchDelayed=true;console.warn({event:"assessment_dispatch_delayed"});}
+      return json({...requested,dispatchDelayed},202);
     }
     const stop=path.match(/^\/api\/stop\/([a-z0-9-]+)$/);
     if(stop){

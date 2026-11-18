@@ -14,6 +14,8 @@ The Workflow snapshots visible zones, managed WAF entry points and Worker names,
 
 Search by advisory title or CVE. **Handoff** shows the exposure verdict and next action; expand the supporting checks, AI draft, and Radar recommendations as needed. **Evidence** has the inventory snapshot and coverage gaps. **Activity** shows the latest event and an expandable log. Active runs update automatically, and saved inventory remains available if a later step fails or stops. Older runs retain the advisory revision they used.
 
+Under **Team triage**, an administrator can assign an owner or team, add a UTC due date, and record a note. Filter the inbox for overdue follow-ups or revised advisories. Closing triage requires an owner and a note and does not change the technical exposure verdict. A revised advisory needs a fresh review; concurrent edits cannot overwrite each other silently. **Activity → Triage history** shows the latest 20 changes with the verified editor, timestamp, revision, status, owner, due date, and whether the note changed. It does not retain past note text.
+
 **Interpreting a result:** a zone with a managed WAF entry point is a configuration observation. It does not prove that a specific rule blocks traffic or that a backend is patched. Missing permissions, unsupported resource types and absent origin versions remain unknown. Optional owner-provided CycloneDX VEX evidence can establish a reported affected component; it never clears the entire account.
 
 ### Install in your account
@@ -36,19 +38,19 @@ Search by advisory title or CVE. **Handoff** shows the exposure verdict and next
    |---|---|
    | `ACCESS_TEAM` | Team name only: `example` for `example.cloudflareaccess.com` |
    | `ACCESS_AUD` | Application Audience (AUD) tag of this specific Access application |
-   | `ADMIN_EMAILS` | Comma-separated verified Access user emails permitted to sync, assess and stop. Other allowed users can read all reports. |
+   | `ADMIN_EMAILS` | Comma-separated verified Access user emails permitted to sync, assess, stop, and edit triage. Other allowed users can read reports and triage history. |
    | `INVENTORY_ACCOUNT_ID` | ID of the single account to inventory |
    | `INVENTORY_TOKEN` | Separate read-only API token scoped to that account and the intended zones. Grant Account → Workers Scripts → Read, Zone → Zone → Read, and Zone → Zone WAF → Read. Do not use a global key or deployment credentials. |
 
-4. Sign in as an administrator, click **Sync feed**, then **Assess** an older briefing. Click **Refresh** and **Inspect** for status, evidence and events. **Stop** terminates a queued/running Workflow; an already-issued read or inference may finish. A manual re-run gets a new ID. Confirm a reader cannot trigger runs and anonymous requests cannot load `/api/overview`.
+4. Sign in as an administrator, click **Sync feed**, then **Assess** a briefing. Check **Evidence** and **Activity** as the run progresses. **Stop run** terminates a queued/running Workflow; an already-issued read or inference may finish. A manual rerun gets a new ID after an existing run for that revision finishes. Confirm a reader cannot trigger runs or edit triage and anonymous requests cannot load `/api/overview`.
 
 Optional: provide a compact CycloneDX VEX JSON document as the `OWNER_VEX` secret (`npx wrangler secret put OWNER_VEX < private-vex.json`, from a file **outside the repo**). Include `metadata.timestamp`, `components` with `bom-ref`, name and version, and `vulnerabilities` with exact CVE `id`, `analysis.state` and `affects[].ref`. Use a current, owner-reviewed snapshot small enough for a Worker secret. Each report identifies the data as owner evidence.
 
 ### Operations and data
 
-- Reports and events are private to the deploying account. Visible zone names, Worker names, scoped VEX findings and WAF counts are processed by Workers AI and stored with the report. No raw tokens, DNS record values, WAF expressions or Worker source are sent to the model. Application data is retained until the operator removes storage; there is no automatic expiry yet.
-- Each snapshot checks at most ten visible zones and forty Worker names. Review coverage gaps before making decisions. The Worker only reads the feed, Access signing keys and fixed Cloudflare control-plane endpoints.
-- Check **Last synced** for a stale feed, **Inspect → Event log** for stage errors, and Workflows in the Cloudflare dashboard for platform retries/failures. Use `npx wrangler tail` for operational troubleshooting. No raw payloads are written to application debug logs.
+- Reports, events, triage notes, and editor emails are visible to authenticated workspace readers. Triage data is not sent to Workers AI. Visible zone names, Worker names, scoped VEX findings and WAF counts are processed by Workers AI and stored with the report. No raw tokens, DNS record values, WAF expressions or Worker source are sent to the model. Application data is retained until the operator removes storage; there is no automatic expiry yet.
+- Each snapshot checks up to 30 visible zones over three pages and records up to 40 Worker names. Partial or unavailable inventory is flagged in the handoff; even a successful read is limited to the token’s visibility. The Worker only reads the feed, Access signing keys and fixed Cloudflare control-plane endpoints.
+- Check **Radar feed** for sync failures, **Activity → Event log** for stage errors, and Workflows in the Cloudflare dashboard for platform retries/failures. Pending dispatches are retried on scheduled syncs even if the feed cannot be read. Use `npx wrangler tail` for operational troubleshooting. No raw payloads are written to application debug logs.
 - To suspend scheduled assessments, remove the cron entry in `wrangler.jsonc` and redeploy. Stop individual in-flight runs in the dashboard. Rotate/revoke the inventory token independently. One installation per account by default; choose distinct Worker and Workflow names for additional deployments.
 
 ### Development and publication
