@@ -73,7 +73,7 @@ export function mountWorkspace(transport,{demo=false}={}){
   <div class="metrics" id="metrics" aria-label="Workspace status"></div><div class="notice" id="notice" role="status" hidden></div>
   <div class="workspace-grid"><aside class="inbox" aria-label="Advisory inbox"><div class="inbox-head"><h2>Advisories</h2><label class="sr" for="find-advisory">Search advisories</label><input id="find-advisory" type="search" placeholder="Search title, CVE or owner"><label class="sr" for="filter-state">Filter advisories</label><select id="filter-state"><option value="all">All advisories</option><optgroup label="Triage"><option value="follow-up">Open follow-up</option><option value="overdue">Overdue follow-up</option><option value="revised">Needs revision review</option><option value="closed">Closed triage</option></optgroup><optgroup label="Run status"><option value="none">Not assessed</option><option value="active">In progress</option><option value="complete">Report ready</option><option value="attention">Failed or stopped</option></optgroup></select></div><div id="advisories"></div></aside>
   <div id="desk" class="desk"><section class="panel"><p>Loading advisories…</p></section></div></div>
-  <dialog id="triage-dialog" aria-labelledby="edit-triage-title"></dialog>
+  <dialog id="desk-dialog" aria-labelledby="desk-dialog-title"></dialog>
   <footer><span>Read-only checks · UTC timestamps</span><a href="https://radar.cloudflare.com/zero-wire">Cloudflare Radar ↗</a></footer>`;
   const $=id=>document.getElementById(id);
   let view, current, runId, generation=0, overviewRequest=0, timer, busy=false, lastState, lastAlert, tab="handoff", followLatest=true, renderedKey, inboxDate;
@@ -84,17 +84,29 @@ export function mountWorkspace(transport,{demo=false}={}){
   };
   const refreshBtn=button("Refresh",()=>change(async()=>{await refresh();alert("Workspace refreshed.");}));
   const mainBtn=button(demo?"Reset demo":"Sync feed",()=>change(async()=>{
-    if(demo){await transport.reset();openDetails.clear();delete $("desk").dataset.detailScope;current=null;runId=null;lastState=null;followLatest=true;tab="handoff";await refresh();alert("Demo reset.");}
+    if(demo){
+      await transport.reset();openDetails.clear();delete $("desk").dataset.detailScope;current=null;runId=null;lastState=null;
+      followLatest=true;tab="handoff";renderedKey=null;
+      $("find-advisory").value="";$("filter-state").value="all";
+      for(const row of document.querySelectorAll(".sample details, #metrics details"))row.open=false;
+      await refresh();alert("Demo reset.");
+    }
     else {const sync=await transport.sync();await refresh();alert(sync.first?`${sync.count} briefings cataloged. Choose one to assess.`:sync.queued?`${sync.queued} new or revised briefings queued.`:"Feed checked. No new revisions to assess.");}
   }));
+  const lock=el=>{el.dataset.workspaceLock="";el.disabled=busy;return el;};
+  function setBusy(value){
+    busy=value;
+    for(const el of root.querySelectorAll("[data-workspace-lock]"))el.disabled=value;
+  }
+  lock(refreshBtn);lock(mainBtn);
   $("controls").append(refreshBtn,mainBtn);
   mainBtn.hidden=!demo;
-  async function change(fn,b){
+  async function change(fn){
     if(busy)return;
-    busy=true;if(b)b.disabled=true;
+    setBusy(true);
     alert("");
     try{await fn();}catch(err){alert(err.message,"error");}
-    finally{busy=false;if(b)b.disabled=false;poll();}
+    finally{setBusy(false);poll();}
   }
   function metrics(){
     const attempts=view.lastAttempt;
@@ -127,7 +139,11 @@ export function mountWorkspace(transport,{demo=false}={}){
       if(b.triageStatus)a.append(node("small",b.triageRevision!==b.revision?"Review new revision":overdue(b.triageStatus,b.triageDue,inboxDate)?"Follow-up overdue":triageLabels[b.triageStatus],"muted"));
       return a;
     }));
-    if(!matched.length)$("advisories").append(node("p",view.briefings.length?"No matching advisories.":"No advisories yet.","empty"));
+    if(!matched.length){
+      const empty=wrap("empty",node("p",view.briefings.length?"No matching advisories.":"No advisories yet."));
+      if(view.briefings.length)empty.append(button("Clear filters",()=>{$("find-advisory").value="";$("filter-state").value="all";inbox();$("find-advisory").focus();}));
+      $("advisories").append(empty);
+    }
     if(focus)Array.from($("advisories").children).find(x=>x.dataset.slug===focus)?.focus({preventScroll:true});
   }
   function timeline(detail){
@@ -144,7 +160,7 @@ export function mountWorkspace(transport,{demo=false}={}){
     return stages;
   }
   function editTriage(doc,triage){
-    const dialog=$("triage-dialog"), form=node("form","","triage-form");
+    const dialog=$("desk-dialog"), form=node("form","","triage-form");
     const revised=Boolean(triage && triage.revision!==doc.revision);
     const status=node("select");
     for(const [k,v] of Object.entries(triageLabels))status.append(new Option(v,k));
@@ -154,7 +170,7 @@ export function mountWorkspace(transport,{demo=false}={}){
     const note=Object.assign(node("textarea"),{rows:4,maxLength:1200,value:revised?"":triage?.note??""});
     const field=(name,input)=>{const label=node("label",name);label.append(input);return label;};
     const error=node("p","","inline-warning");error.hidden=true;error.setAttribute("role","alert");
-    const title=node("h3","Edit triage");title.id="edit-triage-title";
+    const title=node("h3","Edit triage");title.id="desk-dialog-title";
     const cancel=button("Cancel",()=>dialog.close());
     const save=Object.assign(node("button","Save triage","primary"),{type:"submit"});
     const reload=button("Discard draft and reload",()=>void (async()=>{
@@ -177,15 +193,18 @@ export function mountWorkspace(transport,{demo=false}={}){
         error.textContent="Closing requires an owner and a note.";error.hidden=false;return;
       }
       void (async()=>{
-        busy=true;save.disabled=cancel.disabled=true;error.hidden=true;
+        setBusy(true);save.disabled=cancel.disabled=true;error.hidden=true;
         try{
           await transport.saveTriage(doc.slug,{revision:doc.revision,version:triage?.version??0,status:status.value,owner:owner.value,due:due.value,note:note.value});
-          dialog.close();
           try{await refresh();alert("Triage saved.");}catch{alert("Triage saved. Use Refresh to update the workspace.","error");}
+          dialog.close();
         }catch(err){
           error.textContent=err.message;error.hidden=false;
           if(err.status===409){reload.hidden=false;save.hidden=true;}
-        }finally{busy=false;save.disabled=cancel.disabled=false;poll();}
+        }finally{
+          setBusy(false);save.disabled=cancel.disabled=false;poll();
+          if(!dialog.open)$("desk").querySelector('[data-desk-focus="edit-triage"]')?.focus({preventScroll:true});
+        }
       })();
     };
     dialog.oncancel=e=>{if(save.disabled)e.preventDefault();};
@@ -203,7 +222,7 @@ export function mountWorkspace(transport,{demo=false}={}){
       if(triage.note)details.push(node("p",triage.note,"agent-note"));
     }else details.push(node("p","No owner or follow-up recorded.","muted"));
     if(view.admin){
-      const edit=button("Edit triage",()=>editTriage(doc,triage));
+      const edit=lock(button("Edit triage",()=>editTriage(doc,triage)));
       edit.dataset.deskFocus="edit-triage";details.push(wrap("triage-actions",edit));
     }
     return disclosure("triage","Team triage",summary,...details);
@@ -212,6 +231,19 @@ export function mountWorkspace(transport,{demo=false}={}){
     if(!audit?.length)return [];
     return [disclosure("triage-audit","Triage history",`${audit.length===20?"Latest ":""}${audit.length}`,table(
       ["Time","Changed by","Status","Owner","Due (UTC)","Revision","Note"],audit.map(r=>[utc(r.at),r.actor,triageLabels[r.status],r.owner||"—",r.due||"—",r.revision.slice(0,12),r.noteChanged?"Updated":"—"])))];
+  }
+  async function copyHandoff(text){
+    try{await navigator.clipboard.writeText(text);alert("Handoff copied.");}
+    catch{
+      const dialog=$("desk-dialog");
+      const title=node("h3","Copy handoff");title.id="desk-dialog-title";
+      const textBox=Object.assign(node("textarea"),{value:text,readOnly:true,rows:8});
+      textBox.setAttribute("aria-label","Handoff text");
+      dialog.oncancel=null;
+      dialog.replaceChildren(wrap("triage-form",title,node("p","Clipboard unavailable. Copy the selected text."),textBox,button("Close",()=>dialog.close())));
+      dialog.showModal();textBox.focus();textBox.select();
+      dialog.addEventListener("close",()=>$("desk").querySelector('[data-desk-focus="copy"]')?.focus({preventScroll:true}),{once:true});
+    }
   }
   function handoff(doc,detail,triage){
     const e=detail?.evidence ?? detail?.report?.evidence;
@@ -227,7 +259,7 @@ export function mountWorkspace(transport,{demo=false}={}){
     if(!ready && !terminal.has(detail.state))return [card,...(e?[node("p","Inventory saved. See Evidence.","muted")]:[])];
     const source=detail.briefing;
     const [[owner,next],...other]=recommendations(source,e);
-    const copy=button("Copy handoff",()=>void change(async()=>{await navigator.clipboard.writeText(reportText(source,detail,runId,triage));alert("Handoff copied.");}));
+    const copy=lock(button("Copy handoff",()=>void change(()=>copyHandoff(reportText(source,detail,runId,triage)))));
     copy.dataset.deskFocus="copy";
     const actions=section("Next action");
     actions.replaceChildren(wrap("heading",node("h3","Next action"),copy),node("p",`${owner}: ${next}`));
@@ -272,12 +304,13 @@ export function mountWorkspace(transport,{demo=false}={}){
     select.append(new Option(runs.length?"Select a run":"No runs yet",""));
     for(const [i,r] of runs.entries())select.append(new Option(`${i===0?"Latest · ":""}${stateLabel(r.state)} · ${started(r.id)} · ${utc(r.created)}`,r.id));
     select.value=runId??"";select.onchange=()=>{if(select.value)void change(async()=>{runId=select.value;followLatest=runId===runs[0]?.id;lastState=null;await refreshDesk();});};
+    lock(select);
     const action=wrap("toolbar");
     if(view.admin){
       if(detail && active(detail.state)){
-        const stop=button("Stop run",e=>void change(async()=>{await transport.stop(runId);await refresh();alert("Stop requested. See Activity for the outcome.");},e.currentTarget),"danger");stop.dataset.deskFocus="action";action.append(stop);
+        const stop=lock(button("Stop run",()=>void change(async()=>{await transport.stop(runId);await refresh();alert("Stop requested. See Activity for the outcome.");}),"danger"));stop.dataset.deskFocus="action";action.append(stop);
       }else{
-        const assess=button(runs.length?"Run again":demo?"Simulate assessment":"Assess",e=>void change(async()=>{const r=await transport.assess(doc.slug);runId=r.id;followLatest=!r.existing;lastState=null;await refresh();alert(r.dispatchDelayed?"Run saved. Dispatch delayed; the scheduler will retry.":r.existing?"Showing the existing run.":demo?"Simulated run queued.":"Assessment queued.");},e.currentTarget),"primary");
+        const assess=lock(button(runs.length?"Run again":demo?"Simulate assessment":"Assess",()=>void change(async()=>{const r=await transport.assess(doc.slug);runId=r.id;followLatest=!r.existing;lastState=null;await refresh();alert(r.dispatchDelayed?"Run saved. Dispatch delayed; the scheduler will retry.":r.existing?"Showing the existing run.":demo?"Simulated run queued.":"Assessment queued.");}),"primary"));
         assess.dataset.deskFocus="action";action.append(assess);
       }
     }

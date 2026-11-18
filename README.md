@@ -59,9 +59,11 @@ Optional: provide a compact CycloneDX VEX JSON document as the `OWNER_VEX` secre
 npm ci
 npm test
 npm run test:runtime
+npx playwright install chromium
+npm run test:browser
 ```
 
-The runtime smoke test bundles the actual Worker and runs it in workerd with synthetic upstreams; no account or AI credits are needed. For interactive development `npm run dev` uses the same Access gate as production.
+The runtime smoke test bundles the actual Worker and runs it in workerd with synthetic upstreams; no account or AI credits are needed. The browser suite checks administrator and reader flows against fixture responses at desktop and mobile widths. For interactive development `npm run dev` uses the same Access gate as production.
 
 To publish the template, choose a **public github.com or gitlab.com repository**, run `node scripts/deploy-button.mjs https://github.com/YOUR-ORG/YOUR-REPO`, then commit the stamped README and push. The [Deploy to Cloudflare button](https://developers.cloudflare.com/workers/platform/deploy-buttons/) needs the real public repository URL. The button deploys the Worker and bindings; Access policy and read-only inventory credentials are tenant-specific.
 
