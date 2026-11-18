@@ -7,40 +7,8 @@
   <link rel="stylesheet" href="/style.css">
   <script src="/app.js" type="module"></script>
 </head>
-<body>
-  <div class="masthead">
-    <header class="shell">
-      <a class="brand" href="/"><span class="mark" aria-hidden="true">ZW</span> Zero Wire</a>
-      <span class="role" id="role">Connecting…</span>
-    </header>
-    <div class="hero shell">
-      <p class="kicker">Private workspace</p>
-      <h1>Assessment desk</h1>
-      <p>Compare Radar advisories with your Cloudflare inventory. Findings are read-only; origin exposure may still need verification.</p>
-    </div>
-  </div>
-  <main class="shell">
-    <p id="notice" role="status"></p>
-    <div class="grid">
-      <section class="panel" aria-labelledby="briefings-title">
-        <div class="heading"><h2 id="briefings-title">Briefing library</h2><button id="sync" hidden>Sync feed</button></div>
-        <p class="muted note" id="stamp">Loading the briefing library…</p>
-        <div id="briefings"></div>
-      </section>
-      <div class="run-side">
-        <section class="panel" aria-labelledby="runs-title">
-          <div class="heading"><h2 id="runs-title">Assessment runs</h2><button id="refresh">Refresh</button></div>
-          <p class="muted note">Inspect a run to see evidence and its event log.</p>
-          <div id="runs"></div>
-          <nav aria-label="Run history"><button id="prev" hidden>Newer</button><button id="next" hidden>Older</button></nav>
-        </section>
-        <section class="panel inspector" id="detail" aria-label="Run inspector" hidden>
-          <p class="kicker">Run inspector</p>
-          <div id="report"></div>
-        </section>
-      </div>
-    </div>
-    <footer><span>All timestamps UTC</span><a href="https://radar.cloudflare.com/zero-wire">Source: Cloudflare Radar ↗</a></footer>
-  </main>
+<body data-mode="live">
+  <header class="topbar"><a href="/" class="brand"><span>ZW</span> Zero Wire <small>/ Assessment Desk</small></a><div>Private workspace</div></header>
+  <main class="frame" id="workspace" aria-label="Assessment workspace"><p>Loading assessment workspace…</p></main>
 </body>
 </html>

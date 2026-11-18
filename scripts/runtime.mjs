@@ -8,6 +8,7 @@ import {generateKeyPair,exportJWK,SignJWT} from "jose";
 const id="a".repeat(32);
 let entries=["baseline"];
 let prompt="";
+let feedUnavailable=false;
 const {publicKey,privateKey}=await generateKeyPair("RS256");
 const jwk={...await exportJWK(publicKey),kid:"fixture",alg:"RS256"};
 async function login(email){return new SignJWT({email}).setProtectedHeader({alg:"RS256",kid:"fixture"}).setIssuer("https://example.cloudflareaccess.com").setAudience("fixture").setSubject(email).setExpirationTime("10m").sign(privateKey);}
@@ -27,7 +28,7 @@ const rig=new Miniflare(convertV4MiniflareOptions({workers:[{
   outboundService:req=>{
      const u=new URL(req.url);
      if(u.href==="https://example.cloudflareaccess.com/cdn-cgi/access/certs")return Response.json({keys:[jwk]});
-    if(u.origin==="https://radar.cloudflare.com")return Response.json({items:entries.map(slug=>({title:slug,_zero_wire:{slug,assessment_prompt:slug==="new"?prompt:""}}))});
+     if(u.origin==="https://radar.cloudflare.com")return feedUnavailable?new Response(null,{status:503}):Response.json({items:entries.map(slug=>({title:slug,_zero_wire:{slug,assessment_prompt:slug==="new"?prompt:""}}))});
     if(u.origin==="https://api.cloudflare.com")return Response.json({success:true,result:[]});
     throw Error("Unexpected outbound request");
   }
@@ -40,7 +41,7 @@ const rig=new Miniflare(convertV4MiniflareOptions({workers:[{
 }]}));
 try{
   const call=path=>rig.dispatchFetch(`https://example.org${path}`);
-  for (const path of ["/","/app.js","/api/overview","/agents/assessment-agent/abc"])assert.equal((await call(path)).status,401);
+  for (const path of ["/","/app.js","/api/overview","/api/briefings/baseline","/agents/assessment-agent/abc"])assert.equal((await call(path)).status,401);
   assert.equal((await (await call("/sync")).json()).runs.length,0);
   entries.push("new");
   const [{id:run}]=(await (await call("/sync")).json()).runs;
@@ -53,11 +54,15 @@ try{
   }
   assert.equal(detail.state,"complete",JSON.stringify(detail.logs));
   assert.equal(detail.report.note,"Inspect origin inventory.");
+  assert.deepEqual(detail.evidence,detail.report.evidence);assert.ok(detail.logs.some(e=>e.note==="Inventory snapshot saved"));
   const admin=await login("admin@example.org"),reader=await login("reader@example.org");
   const home=await rig.dispatchFetch("https://example.org/",{headers:{"cf-access-jwt-assertion":admin}});
   assert.equal(home.status,200);assert.equal(home.headers.get("cache-control"),"private, no-store");assert.equal(await home.text(),"fixture asset");
   const api=(path,token,method="GET",origin="https://example.org")=>rig.dispatchFetch(`https://example.org/api/${path}`,{method,headers:{"cf-access-jwt-assertion":token,origin,"x-console-action":"1"}});
   const overview=await api("overview",reader);assert.equal(overview.status,200);assert.equal((await overview.json()).admin,false);
+  const advisory=await (await api("briefings/new",reader)).json();
+  assert.equal(advisory.briefing.slug,"new");assert.equal(advisory.runs[0].id,run);assert.equal(advisory.runs[0].revision,detail.briefing.revision);
+  assert.equal((await api("briefings/missing",reader)).status,404);
   assert.equal((await api("sync",reader,"POST")).status,403);
   assert.equal((await api("sync",admin,"POST","https://other.example")).status,403);
   assert.equal((await api("sync",admin,"POST")).status,200);
@@ -73,6 +78,10 @@ try{
   prompt="Updated owner checklist";
   assert.equal((await api("sync",admin,"POST")).status,200);
   const updated=await (await api("overview",admin)).json();assert.equal(updated.runs.filter(r=>r.title==="new").length,2);
+  assert.equal(updated.lastAttempt.status,"ok");assert.equal(updated.lastAttempt.queued,1);assert.ok(updated.counts.complete>=1);
+  feedUnavailable=true;
+  assert.equal((await api("sync",admin,"POST")).status,503);
+  const after=await (await api("overview",admin)).json();assert.equal(after.lastAttempt.stage,"feed");assert.equal(after.sync,updated.sync);
   console.log("Signed admin/reader API, origin protection, manual sync, archival assessment, cancellation, event log and re-run passed.");
   console.log("Access gate, baseline, deduplication, Workflow → Agent → model binding and saved report passed.");
 }finally{await rig.dispose();}

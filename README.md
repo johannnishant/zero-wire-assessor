@@ -12,6 +12,8 @@ Every 15 minutes the Worker reads the public JSON feed. The first sync builds a 
 
 The Workflow snapshots visible zones, managed WAF entry points and Worker names, then calls a separate Cloudflare Agents SDK instance for that run. Workers AI receives the curated briefing, its assessment prompt when available, and the scoped observations. The dashboard shows the evidence, the model's interpretation, Radar's recommended actions, and a timestamped event log. Reference URLs are for human readers; the model cannot request URLs, run commands, change settings, or test origins.
 
+In the workspace, search by advisory title or CVE and select a briefing to see its summary and most recent run. **Decision & handoff** separates the exposure verdict, owner next steps and the agent draft. **Evidence** shows API observations and coverage gaps. **Activity** shows what actually ran and when. Progress updates automatically. Inventory remains available if a later step fails or is stopped after the snapshot is saved. Older runs retain the advisory revision they used.
+
 **Interpreting a result:** a zone with a managed WAF entry point is a configuration observation. It does not prove that a specific rule blocks traffic or that a backend is patched. Missing permissions, unsupported resource types and absent origin versions remain unknown. Optional owner-provided CycloneDX VEX evidence can establish a reported affected component; it never clears the entire account.
 
 ### Install in your account

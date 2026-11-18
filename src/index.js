@@ -29,7 +29,7 @@ export class AssessmentWorkflow extends WorkflowEntrypoint {
         if (!await store.mark(id,"collecting")) return null;
         const snapshot=await inventory(this.env);
         snapshot.ownerEvidence=ownerEvidence(this.env.OWNER_VEX,(await store.doc(id)).cves);
-        return snapshot;
+        return await store.saveEvidence(id,snapshot) ? snapshot : null;
       });
       if (!evidence) return;
       stage="Workers AI";
@@ -53,10 +53,19 @@ async function dispatch(env) {
   await env.RUNS.createBatch(rows.map(({id})=>({id,params:{}})));
   for (const {id} of rows) await store.mark(id,"queued");
 }
-async function sync(env) {
-  const feed=await boundedJSON(await fetch(FEED,{redirect:"manual",signal:AbortSignal.timeout(20000)}),4_000_000);
-  await ledger(env).ingest(await normalize(feed));
-  await dispatch(env);
+async function sync(env,source) {
+  const store=ledger(env);
+  let info;
+  try{
+    const feed=await boundedJSON(await fetch(FEED,{redirect:"manual",signal:AbortSignal.timeout(20000)}),4_000_000);
+    info=await store.ingest(await normalize(feed));
+    await dispatch(env);
+    await store.recordSync("ok",source,info);
+    return info;
+  }catch(err){
+    await store.recordSync("error",source,{stage:info?"dispatch":"feed"});
+    throw err;
+  }
 }
 const headers={"cache-control":"private, no-store","x-content-type-options":"nosniff","referrer-policy":"no-referrer","content-security-policy":"default-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'none'"};
 const json=(value,status=200)=>Response.json(value,{status,headers});
@@ -66,7 +75,7 @@ async function handle(req,env) {
   const url=new URL(req.url), path=url.pathname, store=ledger(env);
   if (req.method==="POST") {
     if (!user.admin || req.headers.get("origin")!==url.origin || req.headers.get("x-console-action")!=="1") return json({error:"Forbidden"},403);
-    if(path==="/api/sync"){await sync(env);return json({ok:true});}
+    if(path==="/api/sync")return json(await sync(env,"manual"));
     const run=path.match(/^\/api\/assess\/([a-z0-9-]+)$/);
     if(run){
       const id=await store.manual(run[1]);
@@ -89,6 +98,8 @@ async function handle(req,env) {
   }
   if(req.method!=="GET")return json({error:"Method not allowed"},405);
   if(path==="/api/overview")return json({admin:user.admin,...await store.overview(Math.max(0,Math.min(1000000,parseInt(url.searchParams.get("offset"),10)||0)))});
+  const briefing=path.match(/^\/api\/briefings\/([a-z0-9-]{1,120})$/);
+  if(briefing){const d=await store.briefing(briefing[1]);return d?json(d):json({error:"Unknown briefing"},404);}
   const detail=path.match(/^\/api\/runs\/([a-z0-9-]+)$/);
   if(detail){const r=await store.detail(detail[1]);return r?json(r):json({error:"Unknown run"},404);}
   if (!["/","/index.html","/app.js","/style.css"].includes(path))return json({error:"Not found"},404);
@@ -99,5 +110,5 @@ async function handle(req,env) {
 }
 export default {
   async fetch(req,env){try{return await handle(req,env);}catch{return json({error:"Operation failed. Refresh and check configuration."},503);}},
-  async scheduled(_,env){if(env.INVENTORY_TOKEN && env.INVENTORY_ACCOUNT_ID && env.ACCESS_TEAM && env.ACCESS_AUD)await sync(env);}
+  async scheduled(_,env){if(env.INVENTORY_TOKEN && env.INVENTORY_ACCOUNT_ID && env.ACCESS_TEAM && env.ACCESS_AUD)await sync(env,"scheduled");}
 };
